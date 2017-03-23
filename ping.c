@@ -31,9 +31,6 @@
  *
  */
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
 
 #include <stdio.h>
 #include <errno.h>
@@ -51,6 +48,7 @@
 #include <bluetooth/hci_lib.h>
 #include <bluetooth/l2cap.h>
 
+#include "result.h"
 /* Defaults */
 static bdaddr_t bdaddr;
 static int size    = 44;
@@ -61,17 +59,17 @@ static int reverse = 0;
 static int verify = 0;
 
 /* Stats */
-static int sent_pkt = 0;
-static int recv_pkt = 0;
 
-static float tv2fl(struct timeval tv)
+static float tv2fl(struct timeval tv, int sent_pkt, int recv_pkt)
 {
 	return (float)(tv.tv_sec*1000.0) + (float)(tv.tv_usec/1000.0);
 }
 
-static float ping(char *svr, int count)
+struct ping_result ping(char *svr, int count)
 {
 	float average = 0;
+	int sent_pkt = 0;
+	int recv_pkt = 0;
 	int attepmts = count;
 	struct sigaction sa;
 	struct sockaddr_l2 addr;
@@ -81,6 +79,7 @@ static float ping(char *svr, int count)
 	char str[18];
 	int i, sk, lost;
 	uint8_t id;
+	struct ping_result res;
 
 
 	send_buf = malloc(L2CAP_CMD_HDR_SIZE + size);
@@ -127,7 +126,6 @@ static float ping(char *svr, int count)
 	}
 
 	ba2str(&addr.l2_bdaddr, str);
-	printf("Ping: %s from %s (data size %d) ...\n", svr, str, size);
 
 	/* Initialize send buffer */
 	for (i = 0; i < size; i++)
@@ -224,9 +222,7 @@ static float ping(char *svr, int count)
 					goto error;
 				}
 			}
-			average += (tv2fl(tv_diff));
-			printf("%d bytes from %s id %d time %.2fms\n", recv_cmd->len, svr,
-				   id - ident, tv2fl(tv_diff));
+			average += (tv2fl(tv_diff,sent_pkt,recv_pkt));
 
 			if (delay)
 				sleep(delay);
@@ -238,24 +234,20 @@ static float ping(char *svr, int count)
 			id = ident;
 	}
 	int loss = sent_pkt ? (float)((sent_pkt-recv_pkt)/(sent_pkt/100.0)) : 0;
-	printf("%d sent, %d received, %d%% loss\n", sent_pkt, recv_pkt, loss);
+
 	free(send_buf);
 	free(recv_buf);
-	return average / ((float) attepmts);
+	res.average = average;
+	res.sent = sent_pkt;
+	res.received = recv_pkt;
+	return res;
 
 error:
 	close(sk);
 	free(send_buf);
 	free(recv_buf);
-	exit(1);
-}
-
-
-int main(int argc, char *argv[])
-{
-
-	float  time = ping("address",2);
-	printf("%f",time);
-
-	return 0;
+	res.average = average;
+	res.sent = sent_pkt;
+	res.received = recv_pkt;
+	return res;
 }
